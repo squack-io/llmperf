@@ -75,6 +75,7 @@ def get_token_throughput_latencies(
     stddev_input_tokens: int,
     mean_output_tokens: int,
     stddev_output_tokens: int,
+    tokenizer: PreTrainedTokenizerFast,
     additional_sampling_params: Optional[Dict[str, Any]] = None,
     num_concurrent_requests: int = 1,
     max_num_completed_requests: int = 500,
@@ -89,6 +90,7 @@ def get_token_throughput_latencies(
         stddev_input_tokens: The standard deviation of the number of tokens to send in the prompt for the request.
         mean_output_tokens: The mean number of tokens to generate per request.
         stddev_output_tokens: The standard deviation of the number of tokens to generate per request.
+        tokenizer: The tokenizer to use for counting tokens.
         additional_sampling_params: Additional sampling parameters to send with the request.
             For more information see the LLM APIs documentation for the completions
         num_concurrent_requests: The number of concurrent requests to make. Increase
@@ -103,9 +105,6 @@ def get_token_throughput_latencies(
     """
     random.seed(11111)
 
-    tokenizer = PreTrainedTokenizerFast.from_pretrained(
-        "meta-llama/Meta-Llama-3.1-8B-Instruct"
-    )
     get_token_length = lambda text: len(tokenizer.encode(text))
 
     if not additional_sampling_params:
@@ -318,6 +317,7 @@ def run_token_benchmark(
     stddev_input_tokens: int,
     mean_output_tokens: int,
     stddev_output_tokens: int,
+    tokenizer: PreTrainedTokenizerFast,
     results_dir: str,
     user_metadata: Dict[str, Any],
     additional_sampling_params: Optional[str] = "",
@@ -356,6 +356,7 @@ def run_token_benchmark(
         stddev_output_tokens=stddev_output_tokens,
         num_concurrent_requests=num_concurrent_requests,
         additional_sampling_params={},
+        tokenizer=tokenizer,
     )
 
     return summary, individual_responses
