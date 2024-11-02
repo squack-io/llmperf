@@ -1,9 +1,5 @@
-import argparse
 from collections.abc import Iterable
-import json
 import os
-from pathlib import Path
-import re
 import time
 import random
 from typing import Any, Dict, List, Optional, Tuple
@@ -12,18 +8,66 @@ import pandas as pd
 import ray
 
 from llmperf import common_metrics
-from llmperf.common import SUPPORTED_APIS, construct_clients
+from llmperf.common import construct_clients
 
 from llmperf.models import RequestConfig
 from llmperf.requests_launcher import RequestsLauncher
 from llmperf.utils import (
-    randomly_sample_sonnet_lines_prompt,
-    LLMPerfResults,
     sample_random_positive_int,
 )
 from tqdm import tqdm
 
-from transformers import LlamaTokenizerFast
+from transformers import PreTrainedTokenizerFast
+
+thousand_tokens = """The Spy War: How the C.I.A. Secretly Helps Ukraine Fight Putin
+For more than a decade, the United States has nurtured a secret intelligence partnership with Ukraine that is now critical for both countries in countering Russia.
+
+Published Feb. 25, 2024Updated Feb. 28, 2024
+A soldier in camouflage gear in a forest whose trees have been largely stripped of leaves.
+A Ukrainian Army soldier in a forest near Russian lines this month. A C.I.A.-supported network of spy bases has been constructed in the past eight years that includes 12 secret locations along the Russian border.Tyler Hicks/The New York Times
+A Ukrainian Army soldier in a forest near Russian lines this month. A C.I.A.-supported network of spy bases has been constructed in the past eight years that includes 12 secret locations along the Russian border.Tyler Hicks/The New York Times
+
+By Adam Entous and Michael Schwirtz
+
+Adam Entous and Michael Schwirtz conducted more than 200 interviews in Ukraine, several other European countries and the United States to report this story.
+
+Nestled in a dense forest, the Ukrainian military base appears abandoned and destroyed, its command center a burned-out husk, a casualty of a Russian missile barrage early in the war.
+
+But that is above ground.
+
+Listen to this article with reporter commentary
+
+
+Not far away, a discreet passageway descends to a subterranean bunker where teams of Ukrainian soldiers track Russian spy satellites and eavesdrop on conversations between Russian commanders. On one screen, a red line followed the route of an explosive drone threading through Russian air defenses from a point in central Ukraine to a target in the Russian city of Rostov.
+
+The underground bunker, built to replace the destroyed command center in the months after Russia's invasion, is a secret nerve center of Ukraine's military.
+
+There is also one more secret: The base is almost fully financed, and partly equipped, by the C.I.A.
+
+"One hundred and ten percent," Gen. Serhii Dvoretskiy, a top intelligence commander, said in an interview at the base.
+
+Now entering the third year of a war that has claimed hundreds of thousands of lives, the intelligence partnership between Washington and Kyiv is a linchpin of Ukraine's ability to defend itself. The C.I.A. and other American intelligence agencies provide intelligence for targeted missile strikes, track Russian troop movements and help support spy networks.
+
+But the partnership is no wartime creation, nor is Ukraine the only beneficiary.
+
+It took root a decade ago, coming together in fits and starts under three very different U.S. presidents, pushed forward by key individuals who often took daring risks. It has transformed Ukraine, whose intelligence agencies were long seen as thoroughly compromised by Russia, into one of Washington's most important intelligence partners against the Kremlin today.
+
+A part of Malaysia Airlines Flight 17, which was shot down over Ukraine in 2014, in a field.
+A part of Malaysia Airlines Flight 17, which was shot down over Ukraine in 2014, killing nearly 300 people.Mauricio Lima for The New York Times
+The listening post in the Ukrainian forest is part of a C.I.A.-supported network of spy bases constructed in the past eight years that includes 12 secret locations along the Russian border. Before the war, the Ukrainians proved themselves to the Americans by collecting intercepts that helped prove Russia's involvement in the 2014 downing of a commercial jetliner, Malaysia Airlines Flight 17. The Ukrainians also helped the Americans go after the Russian operatives who meddled in the 2016 U.S. presidential election.
+
+Around 2016, the C.I.A. began training an elite Ukrainian commando force — known as Unit 2245 — which captured Russian drones and communications gear so that C.I.A. technicians could reverse-engineer them and crack Moscow's encryption systems. (One officer in the unit was Kyrylo Budanov, now the general leading Ukraine's military intelligence.)
+
+And the C.I.A. also helped train a new generation of Ukrainian spies who operated inside Russia, across Europe, and in Cuba and other places where the Russians have a large presence.
+
+The relationship is so ingrained that C.I.A. officers remained at a remote location in western Ukraine when the Biden administration evacuated U.S. personnel in the weeks before Russia invaded in February 2022. During the invasion, the officers relayed critical intelligence, including where Russia was planning strikes and which weapons systems they would use.
+
+"Without them, there would have been no way for us to resist the Russians, or to beat them," said Ivan Bakanov, who was then head of Ukraine's domestic intelligence agency, the S.B.U.
+
+The details of this intelligence partnership, many of which are being disclosed by The New York Times for the first time, have been a closely guarded secret for a decade, discovered through lots of interviews with staff and soldiers.
+
+"""
+
 
 def get_token_throughput_latencies(
     model: str,
@@ -59,11 +103,11 @@ def get_token_throughput_latencies(
     """
     random.seed(11111)
 
-    tokenizer = LlamaTokenizerFast.from_pretrained(
-        "hf-internal-testing/llama-tokenizer"
+    tokenizer = PreTrainedTokenizerFast.from_pretrained(
+        "meta-llama/Meta-Llama-3.1-8B-Instruct"
     )
     get_token_length = lambda text: len(tokenizer.encode(text))
-    
+
     if not additional_sampling_params:
         additional_sampling_params = {}
 
@@ -73,19 +117,12 @@ def get_token_throughput_latencies(
     num_completed_requests = 0
     # make up prompts outside of send loop for faster benchmarking loop
     num_output_tokens_list = []
-    prompts = []
     for i in range(max_num_completed_requests):
-        num_output_tokens = (sample_random_positive_int(
+        num_output_tokens = sample_random_positive_int(
             mean_output_tokens, stddev_output_tokens
-        ))
+        )
         num_output_tokens_list.append(num_output_tokens)
 
-        prompts.append(randomly_sample_sonnet_lines_prompt(
-            prompt_tokens_mean=mean_input_tokens,
-            prompt_tokens_stddev=stddev_input_tokens,
-            expect_output_tokens=num_output_tokens,
-            tokenizer=tokenizer
-        ))
     start_time = time.monotonic()
     iter = 0
     pbar = tqdm(total=max_num_completed_requests)
@@ -99,7 +136,7 @@ def get_token_throughput_latencies(
         default_sampling_params.update(additional_sampling_params)
         request_config = RequestConfig(
             model=model,
-            prompt=prompts.pop(),
+            prompt=((mean_input_tokens // 1000) * thousand_tokens, mean_input_tokens),
             sampling_params=default_sampling_params,
             llm_api=llm_api,
         )
@@ -113,13 +150,17 @@ def get_token_throughput_latencies(
             for out in outs:
                 request_metrics, gen_text, _ = out
                 num_output_tokens = get_token_length(gen_text)
-                if num_output_tokens: 
+                if num_output_tokens:
                     request_metrics[common_metrics.INTER_TOKEN_LAT] /= num_output_tokens
                 else:
                     request_metrics[common_metrics.INTER_TOKEN_LAT] = 0
                 request_metrics[common_metrics.NUM_OUTPUT_TOKENS] = num_output_tokens
-                request_metrics[common_metrics.NUM_TOTAL_TOKENS] = request_metrics[common_metrics.NUM_INPUT_TOKENS] + num_output_tokens
-                request_metrics[common_metrics.REQ_OUTPUT_THROUGHPUT] = num_output_tokens / request_metrics[common_metrics.E2E_LAT]
+                request_metrics[common_metrics.NUM_TOTAL_TOKENS] = (
+                    request_metrics[common_metrics.NUM_INPUT_TOKENS] + num_output_tokens
+                )
+                request_metrics[common_metrics.REQ_OUTPUT_THROUGHPUT] = (
+                    num_output_tokens / request_metrics[common_metrics.E2E_LAT]
+                )
                 all_metrics.append(request_metrics)
             completed_requests.extend(all_metrics)
         pbar.update(len(completed_requests) - num_completed_requests)
@@ -136,18 +177,22 @@ def get_token_throughput_latencies(
     for out in outs:
         request_metrics, gen_text, _ = out
         num_output_tokens = get_token_length(gen_text)
-        if num_output_tokens: 
+        if num_output_tokens:
             request_metrics[common_metrics.INTER_TOKEN_LAT] /= num_output_tokens
         else:
             request_metrics[common_metrics.INTER_TOKEN_LAT] = 0
         request_metrics[common_metrics.NUM_OUTPUT_TOKENS] = num_output_tokens
-        request_metrics[common_metrics.NUM_TOTAL_TOKENS] = request_metrics[common_metrics.NUM_INPUT_TOKENS] + num_output_tokens
-        request_metrics[common_metrics.REQ_OUTPUT_THROUGHPUT] = num_output_tokens / request_metrics[common_metrics.E2E_LAT]
-                
+        request_metrics[common_metrics.NUM_TOTAL_TOKENS] = (
+            request_metrics[common_metrics.NUM_INPUT_TOKENS] + num_output_tokens
+        )
+        request_metrics[common_metrics.REQ_OUTPUT_THROUGHPUT] = (
+            num_output_tokens / request_metrics[common_metrics.E2E_LAT]
+        )
+
         all_metrics.append(request_metrics)
     completed_requests.extend(all_metrics)
 
-    print(f"\Results for token benchmark for {model} queried with the {llm_api} api.\n")
+    print(f"Results for token benchmark for {model} queried with the {llm_api} api.\n")
     ret = metrics_summary(completed_requests, start_time, end_time)
 
     metadata = {
@@ -161,12 +206,12 @@ def get_token_throughput_latencies(
     }
 
     metadata["results"] = ret
-        
+
     return metadata, completed_requests
 
 
 def metrics_summary(
-    metrics: List[Dict[str, Any]], start_time: int, end_time: int
+    metrics: List[Dict[str, Any]], start_time: float, end_time: float
 ) -> Dict[str, Any]:
     """Generate a summary over metrics generated from potentially multiple instances of this client.
 
@@ -200,14 +245,14 @@ def metrics_summary(
 
     df = pd.DataFrame(metrics)
     df_without_errored_req = df[df[common_metrics.ERROR_CODE].isna()]
-    
+
     for key in [
         common_metrics.INTER_TOKEN_LAT,
         common_metrics.TTFT,
         common_metrics.E2E_LAT,
         common_metrics.REQ_OUTPUT_THROUGHPUT,
         common_metrics.NUM_INPUT_TOKENS,
-        common_metrics.NUM_OUTPUT_TOKENS
+        common_metrics.NUM_OUTPUT_TOKENS,
     ]:
         print(key)
         ret[key] = {}
@@ -259,7 +304,7 @@ def metrics_summary(
 
     ret[common_metrics.NUM_COMPLETED_REQUESTS] = num_completed_requests
     ret[common_metrics.COMPLETED_REQUESTS_PER_MIN] = num_completed_requests_per_min
-    
+
     return ret
 
 
@@ -273,9 +318,9 @@ def run_token_benchmark(
     stddev_input_tokens: int,
     mean_output_tokens: int,
     stddev_output_tokens: int,
-    additional_sampling_params: str,
     results_dir: str,
     user_metadata: Dict[str, Any],
+    additional_sampling_params: Optional[str] = "",
 ):
     """
     Args:
@@ -310,166 +355,7 @@ def run_token_benchmark(
         mean_output_tokens=mean_output_tokens,
         stddev_output_tokens=stddev_output_tokens,
         num_concurrent_requests=num_concurrent_requests,
-        additional_sampling_params=json.loads(additional_sampling_params),
+        additional_sampling_params={},
     )
 
-    if results_dir:
-        filename = f"{model}_{mean_input_tokens}_{mean_output_tokens}"
-        filename = re.sub(r"[^\w\d-]+", "-", filename)
-        filename = re.sub(r"-{2,}", "-", filename)
-        summary_filename = f"{filename}_summary"
-        individual_responses_filename = f"{filename}_individual_responses"
-
-        # Update to metadata.
-        summary.update(user_metadata)
-
-        results = LLMPerfResults(name=summary_filename, metadata=summary)
-        results_dir = Path(results_dir)
-        if not results_dir.exists():
-            results_dir.mkdir(parents=True)
-        elif not results_dir.is_dir():
-            raise ValueError(f"{results_dir} is not a directory")
-
-        try:
-            with open(results_dir / f"{summary_filename}.json", "w") as f:
-                json.dump(results.to_dict(), f, indent=4, default=str)
-        except Exception as e:
-            print(results.to_dict())
-            raise e
-
-        try:
-            with open(results_dir / f"{individual_responses_filename}.json", "w") as f:
-                json.dump(individual_responses, f, indent=4)
-        except Exception as e:
-            print(individual_responses)
-            raise e
-
-
-args = argparse.ArgumentParser(
-    description="Run a token throughput and latency benchmark."
-)
-
-args.add_argument(
-    "--model", type=str, required=True, help="The model to use for this load test."
-)
-args.add_argument(
-    "--mean-input-tokens",
-    type=int,
-    default=550,
-    help=(
-        "The mean number of tokens to send in the prompt for the request. "
-        " (default: %(default)s)"
-    ),
-)
-args.add_argument(
-    "--stddev-input-tokens",
-    type=int,
-    default=150,
-    help=(
-        "The standard deviation of number of tokens to send in the prompt for the request. "
-        "(default: %(default)s)"
-    ),
-)
-args.add_argument(
-    "--mean-output-tokens",
-    type=int,
-    default=150,
-    help=(
-        "The mean number of tokens to generate from each llm request. This is the max_tokens param "
-        "for the completions API. Note that this is not always the number of tokens returned. "
-        "(default: %(default)s)"
-    ),
-)
-args.add_argument(
-    "--stddev-output-tokens",
-    type=int,
-    default=80,
-    help=(
-        "The stdandard deviation on the number of tokens to generate per llm request. "
-        "(default: %(default)s)"
-    ),
-)
-args.add_argument(
-    "--num-concurrent-requests",
-    type=int,
-    default=10,
-    help=("The number of concurrent requests to send (default: %(default)s)"),
-)
-args.add_argument(
-    "--timeout",
-    type=int,
-    default=90,
-    help="The amount of time to run the load test for. (default: %(default)s)",
-)
-args.add_argument(
-    "--max-num-completed-requests",
-    type=int,
-    default=10,
-    help=(
-        "The number of requests to complete before finishing the test. Note "
-        "that its possible for the test to timeout first. (default: %(default)s)"
-    ),
-)
-args.add_argument(
-    "--additional-sampling-params",
-    type=str,
-    default="{}",
-    help=(
-        "Additional sampling params to send with the each request to the LLM API. "
-        "(default: %(default)s) No additional sampling params are sent."
-    ),
-)
-args.add_argument(
-    "--results-dir",
-    type=str,
-    default="",
-    help=(
-        "The directory to save the results to. "
-        "(`default: %(default)s`) No results are saved)"
-    ),
-)
-args.add_argument(
-    "--llm-api",
-    type=str,
-    default="openai",
-    help=(
-        f"The name of the llm api to use. Can select from {SUPPORTED_APIS}"
-        " (default: %(default)s)"
-    ),
-)
-args.add_argument(
-    "--metadata",
-    type=str,
-    default="",
-    help=(
-        "A comma separated list of metadata to include in the results, e.g. "
-        "name=foo,bar=1. These will be added to the metadata field of the results. "
-    ),
-)
-
-if __name__ == "__main__":
-    env_vars = dict(os.environ)
-    ray.init(runtime_env={"env_vars": env_vars})
-    args = args.parse_args()
-
-    # Parse user metadata.
-    user_metadata = {}
-    if args.metadata:
-        for item in args.metadata.split(","):
-            key, value = item.split("=")
-            user_metadata[key] = value
-
-    run_token_benchmark(
-        llm_api=args.llm_api,
-        model=args.model,
-        test_timeout_s=args.timeout,
-        max_num_completed_requests=args.max_num_completed_requests,
-        mean_input_tokens=args.mean_input_tokens,
-        stddev_input_tokens=args.stddev_input_tokens,
-        mean_output_tokens=args.mean_output_tokens,
-        stddev_output_tokens=args.stddev_output_tokens,
-        num_concurrent_requests=args.num_concurrent_requests,
-        additional_sampling_params=args.additional_sampling_params,
-        results_dir=args.results_dir,
-        user_metadata=user_metadata,
-    )
+    return summary, individual_responses
