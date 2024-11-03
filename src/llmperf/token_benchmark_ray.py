@@ -19,55 +19,6 @@ from tqdm import tqdm
 
 from transformers import PreTrainedTokenizerFast
 
-thousand_tokens = """The Spy War: How the C.I.A. Secretly Helps Ukraine Fight Putin
-For more than a decade, the United States has nurtured a secret intelligence partnership with Ukraine that is now critical for both countries in countering Russia.
-
-Published Feb. 25, 2024Updated Feb. 28, 2024
-A soldier in camouflage gear in a forest whose trees have been largely stripped of leaves.
-A Ukrainian Army soldier in a forest near Russian lines this month. A C.I.A.-supported network of spy bases has been constructed in the past eight years that includes 12 secret locations along the Russian border.Tyler Hicks/The New York Times
-A Ukrainian Army soldier in a forest near Russian lines this month. A C.I.A.-supported network of spy bases has been constructed in the past eight years that includes 12 secret locations along the Russian border.Tyler Hicks/The New York Times
-
-By Adam Entous and Michael Schwirtz
-
-Adam Entous and Michael Schwirtz conducted more than 200 interviews in Ukraine, several other European countries and the United States to report this story.
-
-Nestled in a dense forest, the Ukrainian military base appears abandoned and destroyed, its command center a burned-out husk, a casualty of a Russian missile barrage early in the war.
-
-But that is above ground.
-
-Listen to this article with reporter commentary
-
-
-Not far away, a discreet passageway descends to a subterranean bunker where teams of Ukrainian soldiers track Russian spy satellites and eavesdrop on conversations between Russian commanders. On one screen, a red line followed the route of an explosive drone threading through Russian air defenses from a point in central Ukraine to a target in the Russian city of Rostov.
-
-The underground bunker, built to replace the destroyed command center in the months after Russia's invasion, is a secret nerve center of Ukraine's military.
-
-There is also one more secret: The base is almost fully financed, and partly equipped, by the C.I.A.
-
-"One hundred and ten percent," Gen. Serhii Dvoretskiy, a top intelligence commander, said in an interview at the base.
-
-Now entering the third year of a war that has claimed hundreds of thousands of lives, the intelligence partnership between Washington and Kyiv is a linchpin of Ukraine's ability to defend itself. The C.I.A. and other American intelligence agencies provide intelligence for targeted missile strikes, track Russian troop movements and help support spy networks.
-
-But the partnership is no wartime creation, nor is Ukraine the only beneficiary.
-
-It took root a decade ago, coming together in fits and starts under three very different U.S. presidents, pushed forward by key individuals who often took daring risks. It has transformed Ukraine, whose intelligence agencies were long seen as thoroughly compromised by Russia, into one of Washington's most important intelligence partners against the Kremlin today.
-
-A part of Malaysia Airlines Flight 17, which was shot down over Ukraine in 2014, in a field.
-A part of Malaysia Airlines Flight 17, which was shot down over Ukraine in 2014, killing nearly 300 people.Mauricio Lima for The New York Times
-The listening post in the Ukrainian forest is part of a C.I.A.-supported network of spy bases constructed in the past eight years that includes 12 secret locations along the Russian border. Before the war, the Ukrainians proved themselves to the Americans by collecting intercepts that helped prove Russia's involvement in the 2014 downing of a commercial jetliner, Malaysia Airlines Flight 17. The Ukrainians also helped the Americans go after the Russian operatives who meddled in the 2016 U.S. presidential election.
-
-Around 2016, the C.I.A. began training an elite Ukrainian commando force — known as Unit 2245 — which captured Russian drones and communications gear so that C.I.A. technicians could reverse-engineer them and crack Moscow's encryption systems. (One officer in the unit was Kyrylo Budanov, now the general leading Ukraine's military intelligence.)
-
-And the C.I.A. also helped train a new generation of Ukrainian spies who operated inside Russia, across Europe, and in Cuba and other places where the Russians have a large presence.
-
-The relationship is so ingrained that C.I.A. officers remained at a remote location in western Ukraine when the Biden administration evacuated U.S. personnel in the weeks before Russia invaded in February 2022. During the invasion, the officers relayed critical intelligence, including where Russia was planning strikes and which weapons systems they would use.
-
-"Without them, there would have been no way for us to resist the Russians, or to beat them," said Ivan Bakanov, who was then head of Ukraine's domestic intelligence agency, the S.B.U.
-
-The details of this intelligence partnership, many of which are being disclosed by The New York Times for the first time, have been a closely guarded secret for a decade, discovered through lots of interviews with staff and soldiers.
-
-"""
-
 
 def get_token_throughput_latencies(
     model: str,
@@ -76,6 +27,7 @@ def get_token_throughput_latencies(
     mean_output_tokens: int,
     stddev_output_tokens: int,
     tokenizer: PreTrainedTokenizerFast,
+    text_input: str,
     additional_sampling_params: Optional[Dict[str, Any]] = None,
     num_concurrent_requests: int = 1,
     max_num_completed_requests: int = 500,
@@ -135,7 +87,7 @@ def get_token_throughput_latencies(
         default_sampling_params.update(additional_sampling_params)
         request_config = RequestConfig(
             model=model,
-            prompt=((mean_input_tokens // 1000) * thousand_tokens, mean_input_tokens),
+            prompt=(text_input, mean_input_tokens),
             sampling_params=default_sampling_params,
             llm_api=llm_api,
         )
@@ -318,9 +270,7 @@ def run_token_benchmark(
     mean_output_tokens: int,
     stddev_output_tokens: int,
     tokenizer: PreTrainedTokenizerFast,
-    results_dir: str,
-    user_metadata: Dict[str, Any],
-    additional_sampling_params: Optional[str] = "",
+    text_input: str,
 ):
     """
     Args:
@@ -357,6 +307,7 @@ def run_token_benchmark(
         num_concurrent_requests=num_concurrent_requests,
         additional_sampling_params={},
         tokenizer=tokenizer,
+        text_input=text_input,
     )
 
     return summary, individual_responses
