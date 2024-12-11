@@ -107,8 +107,10 @@ def get_token_throughput_latencies(
                 request_metrics[common_metrics.NUM_TOTAL_TOKENS] = (
                     request_metrics[common_metrics.NUM_INPUT_TOKENS] + num_output_tokens
                 )
+                # Calculate throughput as output tokens / (total time - TTFT)
+                generation_time = request_metrics[common_metrics.E2E_LAT] - request_metrics[common_metrics.TTFT]
                 request_metrics[common_metrics.REQ_OUTPUT_THROUGHPUT] = (
-                    num_output_tokens / request_metrics[common_metrics.E2E_LAT]
+                    num_output_tokens / generation_time if generation_time > 0 else 0
                 )
                 all_metrics.append(request_metrics)
             completed_requests.extend(all_metrics)
@@ -134,8 +136,10 @@ def get_token_throughput_latencies(
         request_metrics[common_metrics.NUM_TOTAL_TOKENS] = (
             request_metrics[common_metrics.NUM_INPUT_TOKENS] + num_output_tokens
         )
+        # Calculate throughput as output tokens / (total time - TTFT)
+        generation_time = request_metrics[common_metrics.E2E_LAT] - request_metrics[common_metrics.TTFT]
         request_metrics[common_metrics.REQ_OUTPUT_THROUGHPUT] = (
-            num_output_tokens / request_metrics[common_metrics.E2E_LAT]
+            num_output_tokens / generation_time if generation_time > 0 else 0
         )
 
         all_metrics.append(request_metrics)
@@ -237,9 +241,12 @@ def metrics_summary(
         print(error_code_frequency)
     ret[common_metrics.ERROR_CODE_FREQ] = str(error_code_frequency)
 
+    # Calculate overall throughput as total output tokens / (total time - mean TTFT)
+    mean_ttft = df_without_errored_req[common_metrics.TTFT].mean()
+    generation_time = end_time - start_time - mean_ttft
     overall_output_throughput = df_without_errored_req[
         common_metrics.NUM_OUTPUT_TOKENS
-    ].sum() / (end_time - start_time)
+    ].sum() / generation_time if generation_time > 0 else 0
 
     print(f"Overall Output Throughput: {overall_output_throughput}")
     ret[common_metrics.OUTPUT_THROUGHPUT] = overall_output_throughput
