@@ -13,7 +13,7 @@ from llmperf import common_metrics
 
 @ray.remote
 class FastApplyClient(LLMClient):
-    """Client for OpenAI Chat Completions API."""
+    """Client for Relace Fast Apply API."""
 
     def llm_request(self, request_config: RequestConfig) -> Dict[str, Any]:
         prompt = request_config.prompt

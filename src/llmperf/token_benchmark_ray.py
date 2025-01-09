@@ -31,6 +31,7 @@ def get_token_throughput_latencies(
     max_num_completed_requests: int = 500,
     test_timeout_s=90,
     llm_api="openai",
+    example_id: Optional[int] = None,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """Get the token throughput and latencies for the given model.
 
@@ -47,6 +48,7 @@ def get_token_throughput_latencies(
             this to increase the amount of load and vice versa.
         test_timeout_s: The amount of time to run the test for before reporting results.
         llm_api: The name of the llm api to use. Either "openai" or "litellm".
+        example_id: Optional ID to assign to this example.
 
     Returns:
         A summary of the performance metrics collected across all completed requests
@@ -112,6 +114,8 @@ def get_token_throughput_latencies(
                 request_metrics[common_metrics.REQ_OUTPUT_THROUGHPUT] = (
                     num_output_tokens / generation_time if generation_time > 0 else 0
                 )
+                if example_id is not None:
+                    request_metrics["id"] = example_id
                 all_metrics.append(request_metrics)
             completed_requests.extend(all_metrics)
         pbar.update(len(completed_requests) - num_completed_requests)
@@ -141,7 +145,8 @@ def get_token_throughput_latencies(
         request_metrics[common_metrics.REQ_OUTPUT_THROUGHPUT] = (
             num_output_tokens / generation_time if generation_time > 0 else 0
         )
-
+        if example_id is not None:
+            request_metrics["id"] = example_id
         all_metrics.append(request_metrics)
     completed_requests.extend(all_metrics)
 
