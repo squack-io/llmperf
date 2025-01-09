@@ -155,13 +155,15 @@ class AnthropicPlandexClient(LLMClient):
             "stream": True,
         }
 
+        print(f"Request body: {body}")
+
         # Add any additional sampling parameters
         sampling_params = request_config.sampling_params
         if sampling_params:
             # Map OpenAI parameters to Anthropic equivalents
             param_mapping = {
                 "temperature": "temperature",
-                "max_tokens": "max_tokens",
+                "max_tokens": "max_tokens", 
                 "top_p": "top_p",
                 "top_k": "top_k",
             }
@@ -171,6 +173,7 @@ class AnthropicPlandexClient(LLMClient):
                 if openai_key in sampling_params
             }
             body.update(anthropic_params)
+            print(f"Added sampling parameters: {anthropic_params}")
 
         # Initialize metrics
         time_to_next_token = []
@@ -197,11 +200,15 @@ class AnthropicPlandexClient(LLMClient):
             base_url += "/"
         endpoint = f"{base_url}v1/messages"
 
+        print(f"Using API endpoint: {endpoint}")
+
         headers = {
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         }
+
+        print("Making API request...")
 
         try:
             with requests.post(
@@ -211,17 +218,23 @@ class AnthropicPlandexClient(LLMClient):
                 timeout=180,
                 headers=headers,
             ) as response:
+                print(f"Response status code: {response.status_code}")
+
                 if response.status_code != 200:
                     error_msg = response.text
                     error_response_code = response.status_code
+                    print(f"Error response: {error_msg}")
                     response.raise_for_status()
 
                 for line in response.iter_lines():
                     if not line:
                         continue
 
+                    print(f"Raw line: {line}")
+
                     if line.startswith(b"data: "):
                         data = json.loads(line[6:])
+                        print(f"Parsed data: {data}")
 
                         if data.get("type") == "content_block_delta":
                             tokens_received += 1
@@ -229,23 +242,31 @@ class AnthropicPlandexClient(LLMClient):
                             if not ttft:
                                 ttft = time.monotonic() - start_time
                                 time_to_next_token.append(ttft)
+                                print(f"Time to first token: {ttft}")
                             else:
-                                time_to_next_token.append(
-                                    time.monotonic() - most_recent_received_token_time
-                                )
+                                token_latency = time.monotonic() - most_recent_received_token_time
+                                time_to_next_token.append(token_latency)
+                                print(f"Token latency: {token_latency}")
+
                             most_recent_received_token_time = time.monotonic()
 
                             if "text" in data.get("delta", {}):
                                 generated_text += data["delta"]["text"]
+                                print(f"Generated text so far: {generated_text}")
 
             total_request_time = time.monotonic() - start_time
             output_throughput = tokens_received / total_request_time
+
+            print(f"Total request time: {total_request_time}")
+            print(f"Output throughput: {output_throughput}")
+            print(f"Total tokens received: {tokens_received}")
 
         except Exception as e:
             metrics[common_metrics.ERROR_MSG] = error_msg
             metrics[common_metrics.ERROR_CODE] = error_response_code
             print(f"Warning Or Error: {e}")
-            print(error_response_code)
+            print(f"Error response code: {error_response_code}")
+            print(f"Error message: {error_msg}")
 
         # Calculate and store metrics
         metrics.update(
@@ -259,5 +280,7 @@ class AnthropicPlandexClient(LLMClient):
                 common_metrics.NUM_INPUT_TOKENS: prompt_len,
             }
         )
+
+        print(f"Final metrics: {metrics}")
 
         return metrics, generated_text, request_config
