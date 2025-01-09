@@ -77,9 +77,15 @@ class PlandexClient(LLMClient):
                         if isinstance(line, bytes):
                             line = line.decode("utf-8")
 
+                        # Skip OpenRouter processing messages
+                        if line.strip() == ": OPENROUTER PROCESSING":
+                            continue
+
                         # Handle SSE format
                         if line.startswith("data: "):
                             line = line[6:]  # Remove 'data: ' prefix
+                        else:
+                            continue  # Skip non-data lines
 
                         # Skip [DONE] messages
                         if line.strip() == "[DONE]":
