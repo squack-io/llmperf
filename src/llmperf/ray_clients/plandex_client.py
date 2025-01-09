@@ -179,7 +179,7 @@ class PlandexClient(LLMClient):
         key = os.environ.get("OPENAI_API_KEY")
         if not key:
             raise ValueError("the environment variable OPENAI_API_KEY must be set.")
-        headers = {"Authorization": f"Bearer {key}"}
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
         if not address:
             raise ValueError("No host provided.")
         if not address.endswith("/"):
