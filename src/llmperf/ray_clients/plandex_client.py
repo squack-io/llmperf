@@ -15,7 +15,6 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-
 @ray.remote
 class PlandexClient(LLMClient):
     """Client for Plandex API."""
@@ -24,9 +23,9 @@ class PlandexClient(LLMClient):
         """Log detailed request information for debugging."""
         # Remove sensitive info from headers
         safe_headers = headers.copy()
-        if "Authorization" in safe_headers:
-            safe_headers["Authorization"] = "Bearer [REDACTED]"
-
+        if 'Authorization' in safe_headers:
+            safe_headers['Authorization'] = 'Bearer [REDACTED]'
+            
         logger.debug("Request Details:")
         logger.debug(f"URL: {address}")
         logger.debug(f"Headers: {json.dumps(safe_headers, indent=2)}")
@@ -35,7 +34,13 @@ class PlandexClient(LLMClient):
     def llm_request(self, request_config: RequestConfig) -> Dict[str, Any]:
         prompt_len = 36003
         messages = [{"role": "user", "content": "Hello! Can you tell me a quick joke?"}]
-        model = request_config.model
+        # Map Anthropic model names to OpenRouter format
+        model_mapping = {
+            "claude-3-5-sonnet-20241022": "anthropic/claude-3-sonnet",
+            # Add other model mappings as needed
+        }
+        model = model_mapping.get(request_config.model, request_config.model)
+        logger.debug(f"Using mapped model ID: {model}")
         body = {
             "model": model,
             "messages": messages,
@@ -43,7 +48,7 @@ class PlandexClient(LLMClient):
         }
         sampling_params = request_config.sampling_params
         body.update(sampling_params or {})
-
+        
         time_to_next_token = []
         tokens_received = 0
         ttft = 0
@@ -53,22 +58,28 @@ class PlandexClient(LLMClient):
         output_throughput = 0
         total_request_time = 0
 
-        metrics = {common_metrics.ERROR_CODE: None, common_metrics.ERROR_MSG: ""}
+        metrics = {
+            common_metrics.ERROR_CODE: None,
+            common_metrics.ERROR_MSG: ""
+        }
 
         # Validate environment variables
         address = os.environ.get("OPENAI_API_BASE")
         key = os.environ.get("OPENAI_API_KEY")
-
+        
         if not address:
             raise ValueError("OPENAI_API_BASE environment variable is not set")
         if not key:
             raise ValueError("OPENAI_API_KEY environment variable is not set")
 
         logger.debug(f"Using API base: {address}")
-
+        
         # Prepare request
-        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-
+        headers = {
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json"
+        }
+        
         if not address.endswith("/"):
             address = address + "/"
         address += "chat/completions"
@@ -79,7 +90,7 @@ class PlandexClient(LLMClient):
         try:
             # Log request details before sending
             self._log_request_details(address, headers, body)
-
+            
             with requests.post(
                 address,
                 json=body,
@@ -99,10 +110,16 @@ class PlandexClient(LLMClient):
                     if not chunk:
                         continue
 
-                    stem = "data: "
-                    chunk = chunk[len(stem) :]
+                    # Skip OpenRouter's processing message
+                    if chunk == b'ROUTER PROCESSING':
+                        logger.debug("Received OpenRouter processing message, skipping...")
+                        continue
 
+                    stem = "data: "
+                    chunk = chunk[len(stem):]
+                    
                     if chunk == b"[DONE]":
+                        logger.debug("Received completion signal")
                         continue
 
                     try:
@@ -120,7 +137,7 @@ class PlandexClient(LLMClient):
 
                     tokens_received += 1
                     delta = data["choices"][0]["delta"]
-
+                    
                     if delta.get("content", None):
                         current_time = time.monotonic()
                         if not ttft:
@@ -135,7 +152,7 @@ class PlandexClient(LLMClient):
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Request exception: {str(e)}")
-            if hasattr(e.response, "text"):
+            if hasattr(e.response, 'text'):
                 logger.error(f"Response content: {e.response.text}")
             metrics[common_metrics.ERROR_MSG] = error_msg or str(e)
             metrics[common_metrics.ERROR_CODE] = error_response_code
@@ -146,20 +163,16 @@ class PlandexClient(LLMClient):
 
         # Calculate final metrics
         total_request_time = time.monotonic() - start_time
-        output_throughput = (
-            tokens_received / total_request_time if total_request_time > 0 else 0
-        )
+        output_throughput = tokens_received / total_request_time if total_request_time > 0 else 0
 
-        metrics.update(
-            {
-                common_metrics.INTER_TOKEN_LAT: sum(time_to_next_token),
-                common_metrics.TTFT: ttft,
-                common_metrics.E2E_LAT: total_request_time,
-                common_metrics.REQ_OUTPUT_THROUGHPUT: output_throughput,
-                common_metrics.NUM_TOTAL_TOKENS: tokens_received + prompt_len,
-                common_metrics.NUM_OUTPUT_TOKENS: tokens_received,
-                common_metrics.NUM_INPUT_TOKENS: prompt_len,
-            }
-        )
+        metrics.update({
+            common_metrics.INTER_TOKEN_LAT: sum(time_to_next_token),
+            common_metrics.TTFT: ttft,
+            common_metrics.E2E_LAT: total_request_time,
+            common_metrics.REQ_OUTPUT_THROUGHPUT: output_throughput,
+            common_metrics.NUM_TOTAL_TOKENS: tokens_received + prompt_len,
+            common_metrics.NUM_OUTPUT_TOKENS: tokens_received,
+            common_metrics.NUM_INPUT_TOKENS: prompt_len
+        })
 
         return metrics, generated_text, request_config
