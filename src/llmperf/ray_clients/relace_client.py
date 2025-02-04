@@ -1,7 +1,7 @@
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 import ray
 import requests
@@ -12,18 +12,25 @@ from llmperf import common_metrics
 
 
 @ray.remote
-class FastApplyClient(LLMClient):
-    """Client for Relace Fast Apply API."""
+class RelaceClient(LLMClient):
+    """Client for Relace API."""
 
-    def llm_request(self, request_config: RequestConfig) -> Dict[str, Any]:
+    def llm_request(
+        self, request_config: RequestConfig
+    ) -> Tuple[Dict[str, Any], str, RequestConfig]:
         prompt = request_config.prompt
         prompt, prompt_len = prompt
-        system_len = 50
+        if request_config.system_prompt:
+            system_prompt = request_config.system_prompt
+            system_len = len(system_prompt) / 3.5
+        else:
+            system_prompt = ""
+            system_len = 0
 
         message = [
             {
                 "role": "system",
-                "content": "You are a precise React code editor tasked with applying specific changes to an existing React component while maintaining its structure and functionality. Your goal is to produce a modified, valid, and executable React component based on the provided initial code and edited code with comments.",
+                "content": system_prompt,
             },
             {"role": "user", "content": prompt},
         ]
@@ -119,7 +126,9 @@ class FastApplyClient(LLMClient):
         metrics[common_metrics.TTFT] = ttft
         metrics[common_metrics.E2E_LAT] = total_request_time
         metrics[common_metrics.REQ_OUTPUT_THROUGHPUT] = output_throughput
-        metrics[common_metrics.NUM_TOTAL_TOKENS] = tokens_received + prompt_len + system_len
+        metrics[common_metrics.NUM_TOTAL_TOKENS] = (
+            tokens_received + prompt_len + system_len
+        )
         metrics[common_metrics.NUM_OUTPUT_TOKENS] = tokens_received
         metrics[common_metrics.NUM_INPUT_TOKENS] = prompt_len + system_len
 
