@@ -20,8 +20,6 @@ class RelaceClient:
         user_prompt = request_config.user_prompt
         system_prompt = request_config.system_prompt
         num_input_tokens = request_config.num_input_tokens
-        
-        print("Number of input tokens:", num_input_tokens)
 
         message = [
             {
