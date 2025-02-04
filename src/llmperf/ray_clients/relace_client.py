@@ -28,7 +28,7 @@ class RelaceClient:
             },
             {"role": "user", "content": user_prompt},
         ]
-        print(f"Constructed messages: {message}")
+        print("Messages constructed")
         model = request_config.model
         body = {
             "model": model,
@@ -37,7 +37,7 @@ class RelaceClient:
         }
         sampling_params = request_config.sampling_params
         body.update(sampling_params or {})
-        print(f"Request body: {body}")
+        print("Request body prepared")
         
         time_to_next_token = []
         tokens_received = 0
@@ -100,7 +100,7 @@ class RelaceClient:
                         print("Received DONE signal")
                         continue
                     tokens_received += 1
-                    print(f"Processing chunk {tokens_received}: {chunk}")
+                    print(f"Processing chunk {tokens_received}")
                     data = json.loads(chunk)
 
                     if "error" in data:
@@ -122,7 +122,6 @@ class RelaceClient:
                             time_to_next_token.append(token_latency)
                         most_recent_received_token_time = current_time
                         generated_text += delta["content"]
-                        print(f"Generated text so far: {generated_text}")
 
             total_request_time = time.monotonic() - start_time
             output_throughput = tokens_received / total_request_time
