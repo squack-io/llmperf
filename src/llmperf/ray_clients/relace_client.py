@@ -18,21 +18,15 @@ class RelaceClient(LLMClient):
     def llm_request(
         self, request_config: RequestConfig
     ) -> Tuple[Dict[str, Any], str, RequestConfig]:
-        prompt = request_config.prompt
-        prompt, prompt_len = prompt
-        if request_config.system_prompt:
-            system_prompt = request_config.system_prompt
-            system_len = len(system_prompt) / 3.5
-        else:
-            system_prompt = ""
-            system_len = 0
+        user_prompt = request_config.user_prompt
+        system_prompt = request_config.system_prompt
 
         message = [
             {
                 "role": "system",
                 "content": system_prompt,
             },
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": user_prompt},
         ]
         model = request_config.model
         body = {
@@ -127,9 +121,9 @@ class RelaceClient(LLMClient):
         metrics[common_metrics.E2E_LAT] = total_request_time
         metrics[common_metrics.REQ_OUTPUT_THROUGHPUT] = output_throughput
         metrics[common_metrics.NUM_TOTAL_TOKENS] = (
-            tokens_received + prompt_len + system_len
+            tokens_received + request_config.num_input_tokens
         )
         metrics[common_metrics.NUM_OUTPUT_TOKENS] = tokens_received
-        metrics[common_metrics.NUM_INPUT_TOKENS] = prompt_len + system_len
+        metrics[common_metrics.NUM_INPUT_TOKENS] = request_config.num_input_tokens
 
         return metrics, generated_text, request_config

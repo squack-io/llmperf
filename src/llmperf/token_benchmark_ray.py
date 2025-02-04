@@ -1,6 +1,7 @@
 from collections.abc import Iterable
 import time
 import random
+import json
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -10,9 +11,6 @@ from llmperf.common import construct_clients
 
 from llmperf.models import RequestConfig
 from llmperf.requests_launcher import RequestsLauncher
-from llmperf.utils import (
-    sample_random_positive_int,
-)
 from tqdm import tqdm
 
 from transformers import PreTrainedTokenizerFast
@@ -20,35 +18,28 @@ from transformers import PreTrainedTokenizerFast
 
 def get_token_throughput_latencies(
     model: str,
-    mean_input_tokens: int,
-    stddev_input_tokens: int,
-    mean_output_tokens: int,
-    stddev_output_tokens: int,
     tokenizer: PreTrainedTokenizerFast,
-    text_input: str,
+    jsonl_path: str,
+    max_output_tokens: int,
     additional_sampling_params: Optional[Dict[str, Any]] = None,
     num_concurrent_requests: int = 1,
     max_num_completed_requests: int = 500,
     test_timeout_s=90,
     llm_api="openai",
-    example_id: Optional[int] = None,
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """Get the token throughput and latencies for the given model.
 
     Args:
         model: The name of the model to query.
-        mean_input_tokens: The mean number of tokens to send in the prompt for the request.
-        stddev_input_tokens: The standard deviation of the number of tokens to send in the prompt for the request.
-        mean_output_tokens: The mean number of tokens to generate per request.
-        stddev_output_tokens: The standard deviation of the number of tokens to generate per request.
         tokenizer: The tokenizer to use for counting tokens.
+        jsonl_path: Path to jsonl file containing messages in format {"messages": [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}]}
+        max_output_tokens: The maximum number of tokens to generate per request.
         additional_sampling_params: Additional sampling parameters to send with the request.
             For more information see the LLM APIs documentation for the completions
         num_concurrent_requests: The number of concurrent requests to make. Increase
             this to increase the amount of load and vice versa.
         test_timeout_s: The amount of time to run the test for before reporting results.
         llm_api: The name of the llm api to use. Either "openai" or "litellm".
-        example_id: Optional ID to assign to this example.
 
     Returns:
         A summary of the performance metrics collected across all completed requests
@@ -56,6 +47,13 @@ def get_token_throughput_latencies(
         The individual metrics for each request.
     """
     random.seed(11111)
+
+    # Load all messages from jsonl file
+    messages = []
+    with open(jsonl_path) as f:
+        for line in f:
+            data = json.loads(line)
+            messages.append(data)
 
     get_token_length = lambda text: len(tokenizer.encode(text))
 
@@ -66,13 +64,6 @@ def get_token_throughput_latencies(
     req_launcher = RequestsLauncher(clients)
     completed_requests = []
     num_completed_requests = 0
-    # make up prompts outside of send loop for faster benchmarking loop
-    num_output_tokens_list = []
-    for i in range(max_num_completed_requests):
-        num_output_tokens = sample_random_positive_int(
-            mean_output_tokens, stddev_output_tokens
-        )
-        num_output_tokens_list.append(num_output_tokens)
 
     start_time = time.monotonic()
     iter = 0
@@ -83,18 +74,24 @@ def get_token_throughput_latencies(
     ):
         iter += 1
 
-        default_sampling_params = {"max_tokens": num_output_tokens_list.pop()}
+        default_sampling_params = {"max_tokens": max_output_tokens}
         default_sampling_params.update(additional_sampling_params)
+
+        # Randomly select a message from the jsonl and extract user content
+        message = random.choice(messages)
+        system_prompt = message["messages"][0]["content"]
+        user_prompt = message["messages"][1]["content"]
+        num_input_tokens = get_token_length(system_prompt + user_prompt)
+
         request_config = RequestConfig(
             model=model,
-            prompt=(text_input, mean_input_tokens),
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            num_input_tokens=num_input_tokens,
             sampling_params=default_sampling_params,
             llm_api=llm_api,
         )
         req_launcher.launch_requests(request_config)
-        # Retrieving results less frequently allows for more concurrent requests
-        # to be launched. This will overall reduce the amount of time it takes
-        # for the test to run.
         if not (iter % num_concurrent_requests):
             outs = req_launcher.get_next_ready()
             all_metrics = []
@@ -110,12 +107,13 @@ def get_token_throughput_latencies(
                     request_metrics[common_metrics.NUM_INPUT_TOKENS] + num_output_tokens
                 )
                 # Calculate throughput as output tokens / (total time - TTFT)
-                generation_time = request_metrics[common_metrics.E2E_LAT] - request_metrics[common_metrics.TTFT]
+                generation_time = (
+                    request_metrics[common_metrics.E2E_LAT]
+                    - request_metrics[common_metrics.TTFT]
+                )
                 request_metrics[common_metrics.REQ_OUTPUT_THROUGHPUT] = (
                     num_output_tokens / generation_time if generation_time > 0 else 0
                 )
-                if example_id is not None:
-                    request_metrics["id"] = example_id
                 all_metrics.append(request_metrics)
             completed_requests.extend(all_metrics)
         pbar.update(len(completed_requests) - num_completed_requests)
@@ -141,12 +139,13 @@ def get_token_throughput_latencies(
             request_metrics[common_metrics.NUM_INPUT_TOKENS] + num_output_tokens
         )
         # Calculate throughput as output tokens / (total time - TTFT)
-        generation_time = request_metrics[common_metrics.E2E_LAT] - request_metrics[common_metrics.TTFT]
+        generation_time = (
+            request_metrics[common_metrics.E2E_LAT]
+            - request_metrics[common_metrics.TTFT]
+        )
         request_metrics[common_metrics.REQ_OUTPUT_THROUGHPUT] = (
             num_output_tokens / generation_time if generation_time > 0 else 0
         )
-        if example_id is not None:
-            request_metrics["id"] = example_id
         all_metrics.append(request_metrics)
     completed_requests.extend(all_metrics)
 
@@ -155,10 +154,6 @@ def get_token_throughput_latencies(
 
     metadata = {
         "model": model,
-        "mean_input_tokens": mean_input_tokens,
-        "stddev_input_tokens": stddev_input_tokens,
-        "mean_output_tokens": mean_output_tokens,
-        "stddev_output_tokens": stddev_output_tokens,
         "num_concurrent_requests": num_concurrent_requests,
         "additional_sampling_params": additional_sampling_params,
     }
@@ -249,9 +244,11 @@ def metrics_summary(
     # Calculate overall throughput as total output tokens / (total time - mean TTFT)
     mean_ttft = df_without_errored_req[common_metrics.TTFT].mean()
     generation_time = end_time - start_time - mean_ttft
-    overall_output_throughput = df_without_errored_req[
-        common_metrics.NUM_OUTPUT_TOKENS
-    ].sum() / generation_time if generation_time > 0 else 0
+    overall_output_throughput = (
+        df_without_errored_req[common_metrics.NUM_OUTPUT_TOKENS].sum() / generation_time
+        if generation_time > 0
+        else 0
+    )
 
     print(f"Overall Output Throughput: {overall_output_throughput}")
     ret[common_metrics.OUTPUT_THROUGHPUT] = overall_output_throughput
@@ -275,12 +272,9 @@ def run_token_benchmark(
     test_timeout_s: int,
     max_num_completed_requests: int,
     num_concurrent_requests: int,
-    mean_input_tokens: int,
-    stddev_input_tokens: int,
-    mean_output_tokens: int,
-    stddev_output_tokens: int,
+    max_output_tokens: int,
     tokenizer: PreTrainedTokenizerFast,
-    text_input: str,
+    jsonl_path: str,
 ):
     """
     Args:
@@ -290,34 +284,23 @@ def run_token_benchmark(
         test_timeout_s: The amount of time to run the test for before reporting results.
         num_concurrent_requests: The number of concurrent requests to make. Increase
             this to increase the amount of load and vice versa.
-        mean_input_tokens: The mean number of tokens to send in the prompt for the request.
-        stddev_input_tokens: The standard deviation of the number of tokens to send in the prompt for the request.
-        mean_output_tokens: The mean number of tokens to generate per request.
-        stddev_output_tokens: The standard deviation of the number of tokens to generate per request.
+        max_output_tokens: The maximum number of tokens to generate per request.
         additional_sampling_params: Additional sampling parameters to send with the request.
             For more information see the LLM APIs documentation for the completions.
         results_dir: The directory to save the results to.
         user_metadata: Additional metadata to include in the results.
     """
-    if mean_input_tokens < 40:
-        print(
-            "the minimum number of input tokens that will be sent is 41"
-            " because of the prompting logic right now"
-        )
 
     summary, individual_responses = get_token_throughput_latencies(
         model=model,
         llm_api=llm_api,
         test_timeout_s=test_timeout_s,
         max_num_completed_requests=max_num_completed_requests,
-        mean_input_tokens=mean_input_tokens,
-        stddev_input_tokens=stddev_input_tokens,
-        mean_output_tokens=mean_output_tokens,
-        stddev_output_tokens=stddev_output_tokens,
+        max_output_tokens=max_output_tokens,
         num_concurrent_requests=num_concurrent_requests,
         additional_sampling_params={},
         tokenizer=tokenizer,
-        text_input=text_input,
+        jsonl_path=jsonl_path,
     )
 
     return summary, individual_responses
