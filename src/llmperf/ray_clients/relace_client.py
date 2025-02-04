@@ -1,3 +1,15 @@
+import json
+import os
+import time
+from typing import Any, Dict, Tuple
+
+import ray
+import requests
+
+from llmperf.models import RequestConfig
+from llmperf import common_metrics
+
+
 @ray.remote
 class RelaceClient:
     """Client for Relace API."""
@@ -5,16 +17,9 @@ class RelaceClient:
     def llm_request(
         self, request_config: RequestConfig
     ) -> Tuple[Dict[str, Any], str, RequestConfig]:
-        print("Debug: Starting llm_request in RelaceClient")
-        print(
-            f"Debug: RequestConfig num_input_tokens: {request_config.num_input_tokens}"
-        )
-
+        print(f"Starting request with config: {request_config}")
         user_prompt = request_config.user_prompt
         system_prompt = request_config.system_prompt
-        print(
-            f"Debug: Prompt lengths - system: {len(system_prompt)}, user: {len(user_prompt)}"
-        )
 
         message = [
             {
@@ -23,6 +28,7 @@ class RelaceClient:
             },
             {"role": "user", "content": user_prompt},
         ]
+        print(f"Constructed messages: {message}")
         model = request_config.model
         body = {
             "model": model,
@@ -31,8 +37,8 @@ class RelaceClient:
         }
         sampling_params = request_config.sampling_params
         body.update(sampling_params or {})
-        print(f"Debug: Request body prepared with model: {model}")
-
+        print(f"Request body: {body}")
+        
         time_to_next_token = []
         tokens_received = 0
         ttft = 0
@@ -43,29 +49,32 @@ class RelaceClient:
         total_request_time = 0
 
         metrics = {}
-        print("Debug: Initialized empty metrics dictionary")
 
         metrics[common_metrics.ERROR_CODE] = None
         metrics[common_metrics.ERROR_MSG] = ""
 
         start_time = time.monotonic()
         most_recent_received_token_time = time.monotonic()
-
-        # API setup debug
+        print(f"Request started at: {start_time}")
+        
         address = os.environ.get("OPENAI_API_BASE")
-        print(f"Debug: Using API address: {address}")
-
+        print(f"Using API base address: {address}")
+        if not address:
+            raise ValueError("the environment variable OPENAI_API_BASE must be set.")
         key = os.environ.get("OPENAI_API_KEY")
-        print("Debug: API key present:", bool(key))
-
+        if not key:
+            raise ValueError("the environment variable OPENAI_API_KEY must be set.")
+        print("API key found")
         headers = {"Authorization": f"Bearer {key}"}
+        if not address:
+            raise ValueError("No host provided.")
         if not address.endswith("/"):
             address = address + "/"
         address += "chat/completions"
-        print(f"Debug: Final API endpoint: {address}")
-
+        print(f"Final API endpoint: {address}")
+        
         try:
-            print("Debug: Starting API request")
+            print("Initiating API request...")
             with requests.post(
                 address,
                 json=body,
@@ -73,89 +82,72 @@ class RelaceClient:
                 timeout=180,
                 headers=headers,
             ) as response:
-                print(f"Debug: Initial response status: {response.status_code}")
+                print(f"Response status code: {response.status_code}")
                 if response.status_code != 200:
                     error_msg = response.text
                     error_response_code = response.status_code
-                    print(
-                        f"Debug: Error response received: {error_response_code} - {error_msg}"
-                    )
+                    print(f"Error response received: {error_msg}")
                     response.raise_for_status()
-
-                print("Debug: Processing response stream")
+                print("Processing response stream...")
                 for chunk in response.iter_lines(chunk_size=None):
                     chunk = chunk.strip()
+
                     if not chunk:
                         continue
-
                     stem = "data: "
                     chunk = chunk[len(stem) :]
                     if chunk == b"[DONE]":
+                        print("Received DONE signal")
                         continue
-
                     tokens_received += 1
+                    print(f"Processing chunk {tokens_received}: {chunk}")
                     data = json.loads(chunk)
 
                     if "error" in data:
                         error_msg = data["error"]["message"]
                         error_response_code = data["error"]["code"]
-                        print(f"Debug: Error in response data: {error_msg}")
+                        print(f"Error in response data: {error_msg}")
                         raise RuntimeError(data["error"]["message"])
 
                     delta = data["choices"][0]["delta"]
                     if delta.get("content", None):
+                        current_time = time.monotonic()
                         if not ttft:
-                            ttft = time.monotonic() - start_time
+                            ttft = current_time - start_time
+                            print(f"Time to first token: {ttft}")
                             time_to_next_token.append(ttft)
-                            print(f"Debug: First token received. TTFT: {ttft}")
                         else:
-                            time_to_next_token.append(
-                                time.monotonic() - most_recent_received_token_time
-                            )
-                        most_recent_received_token_time = time.monotonic()
+                            token_latency = current_time - most_recent_received_token_time
+                            print(f"Token latency: {token_latency}")
+                            time_to_next_token.append(token_latency)
+                        most_recent_received_token_time = current_time
                         generated_text += delta["content"]
+                        print(f"Generated text so far: {generated_text}")
 
             total_request_time = time.monotonic() - start_time
             output_throughput = tokens_received / total_request_time
-            print(
-                f"Debug: Request completed. Total time: {total_request_time}, Tokens received: {tokens_received}"
-            )
+            print(f"Request completed. Total time: {total_request_time}")
+            print(f"Output throughput: {output_throughput} tokens/second")
 
         except Exception as e:
-            print(f"Debug: Exception in API request: {str(e)}")
+            print(f"Exception occurred during request: {str(e)}")
             metrics[common_metrics.ERROR_MSG] = error_msg
             metrics[common_metrics.ERROR_CODE] = error_response_code
             print(f"Warning Or Error: {e}")
-            print(error_response_code)
+            print(f"Error response code: {error_response_code}")
 
-        print("Debug: Building final metrics")
-        print(f"Debug: Inter-token latency total: {sum(time_to_next_token)}")
-        metrics[common_metrics.INTER_TOKEN_LAT] = sum(time_to_next_token)
-
-        print(f"Debug: Setting TTFT: {ttft}")
+        print("Calculating final metrics...")
+        metrics[common_metrics.INTER_TOKEN_LAT] = sum(
+            time_to_next_token
+        )  # This should be same as metrics[common_metrics.E2E_LAT]. Leave it here for now
         metrics[common_metrics.TTFT] = ttft
-
-        print(f"Debug: Setting E2E latency: {total_request_time}")
         metrics[common_metrics.E2E_LAT] = total_request_time
-
-        print(f"Debug: Setting output throughput: {output_throughput}")
         metrics[common_metrics.REQ_OUTPUT_THROUGHPUT] = output_throughput
-
-        print(
-            f"Debug: Setting total tokens. Received: {tokens_received}, Input: {request_config.num_input_tokens}"
-        )
         metrics[common_metrics.NUM_TOTAL_TOKENS] = (
             tokens_received + request_config.num_input_tokens
         )
-
-        print(f"Debug: Setting output tokens: {tokens_received}")
         metrics[common_metrics.NUM_OUTPUT_TOKENS] = tokens_received
-
-        print(f"Debug: Setting input tokens: {request_config.num_input_tokens}")
         metrics[common_metrics.NUM_INPUT_TOKENS] = request_config.num_input_tokens
-
-        print("Debug: Final metrics structure:")
-        for key, value in metrics.items():
-            print(f"Debug: {key}: {value}")
+        print(f"Final metrics: {metrics}")
 
         return metrics, generated_text, request_config
