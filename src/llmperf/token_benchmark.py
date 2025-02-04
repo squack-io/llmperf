@@ -8,6 +8,7 @@ from transformers import PreTrainedTokenizerFast
 from llmperf.common import construct_clients
 from llmperf.models import RequestConfig
 from llmperf.requests_launcher import RequestsLauncher
+from llmperf import common_metrics
 
 
 @dataclass
@@ -51,22 +52,22 @@ class TokenMetricsCalculator:
         metrics = request_metrics.copy()
 
         # Calculate per-token metrics
-        metrics["num_output_tokens"] = num_output_tokens
-        metrics["num_total_tokens"] = metrics["num_input_tokens"] + num_output_tokens
-        print(f"Debug: Total tokens: {metrics['num_total_tokens']}")
+        metrics[common_metrics.NUM_OUTPUT_TOKENS] = num_output_tokens
+        metrics[common_metrics.NUM_TOTAL_TOKENS] = metrics[common_metrics.NUM_INPUT_TOKENS] + num_output_tokens
+        print(f"Debug: Total tokens: {metrics[common_metrics.NUM_TOTAL_TOKENS]}")
 
         if num_output_tokens:
-            metrics["inter_token_latency"] /= num_output_tokens
+            metrics[common_metrics.INTER_TOKEN_LAT] /= num_output_tokens
         else:
-            metrics["inter_token_latency"] = 0
-        print(f"Debug: Inter-token latency: {metrics['inter_token_latency']}")
+            metrics[common_metrics.INTER_TOKEN_LAT] = 0
+        print(f"Debug: Inter-token latency: {metrics[common_metrics.INTER_TOKEN_LAT]}")
 
         # Calculate throughput
-        generation_time = metrics["e2e_latency"] - metrics["time_to_first_token"]
-        metrics["request_output_throughput"] = (
+        generation_time = metrics[common_metrics.E2E_LAT] - metrics[common_metrics.TTFT]
+        metrics[common_metrics.REQ_OUTPUT_THROUGHPUT] = (
             num_output_tokens / generation_time if generation_time > 0 else 0
         )
-        print(f"Debug: Output throughput: {metrics['request_output_throughput']}")
+        print(f"Debug: Output throughput: {metrics[common_metrics.REQ_OUTPUT_THROUGHPUT]}")
 
         return metrics
 
@@ -92,19 +93,19 @@ class PerformanceAnalyzer:
     ) -> Dict[str, Any]:
         print(f"Debug: Analyzing metrics for {len(metrics)} requests")
         df = pd.DataFrame(metrics)
-        df_success = df[df["error_code"].isna()]
+        df_success = df[df[common_metrics.ERROR_CODE].isna()]
         print(f"Debug: Found {len(df_success)} successful requests")
 
         results = {}
 
         # Calculate statistics for key metrics
         metric_keys = [
-            "inter_token_latency",
-            "time_to_first_token", 
-            "e2e_latency",
-            "request_output_throughput",
-            "num_input_tokens",
-            "num_output_tokens",
+            common_metrics.INTER_TOKEN_LAT,
+            common_metrics.TTFT,
+            common_metrics.E2E_LAT,
+            common_metrics.REQ_OUTPUT_THROUGHPUT,
+            common_metrics.NUM_INPUT_TOKENS,
+            common_metrics.NUM_OUTPUT_TOKENS,
         ]
 
         for key in metric_keys:
@@ -113,34 +114,34 @@ class PerformanceAnalyzer:
             results[key] = PerformanceAnalyzer.calculate_summary_statistics(series)
 
         # Error analysis
-        error_codes = df["error_code"].dropna()
+        error_codes = df[common_metrics.ERROR_CODE].dropna()
         num_errors = len(error_codes)
         print(f"Debug: Found {num_errors} errors")
         results.update(
             {
-                "num_requests_started": len(metrics),
-                "num_errors": num_errors,
-                "error_rate": num_errors / len(metrics) if metrics else 0,
-                "error_code_frequency": (
+                common_metrics.NUM_REQ_STARTED: len(metrics),
+                common_metrics.NUM_ERRORS: num_errors,
+                common_metrics.ERROR_RATE: num_errors / len(metrics) if metrics else 0,
+                common_metrics.ERROR_CODE_FREQ: (
                     dict(error_codes.value_counts()) if num_errors else {}
                 ),
             }
         )
 
         # Overall throughput calculations
-        mean_ttft = df_success["time_to_first_token"].mean()
+        mean_ttft = df_success[common_metrics.TTFT].mean()
         generation_time = end_time - start_time - mean_ttft
-        total_output_tokens = df_success["num_output_tokens"].sum()
+        total_output_tokens = df_success[common_metrics.NUM_OUTPUT_TOKENS].sum()
         print(f"Debug: Total output tokens: {total_output_tokens}")
         print(f"Debug: Total generation time: {generation_time}")
 
         results.update(
             {
-                "output_throughput": (
+                common_metrics.OUTPUT_THROUGHPUT: (
                     total_output_tokens / generation_time if generation_time > 0 else 0
                 ),
-                "num_completed_requests": len(df_success),
-                "completed_requests_per_min": len(df_success)
+                common_metrics.NUM_COMPLETED_REQUESTS: len(df_success),
+                common_metrics.COMPLETED_REQUESTS_PER_MIN: len(df_success)
                 / (end_time - start_time)
                 * 60,
             }
