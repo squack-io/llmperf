@@ -6,13 +6,12 @@ from typing import Any, Dict, Tuple
 import ray
 import requests
 
-from llmperf.ray_llm_client import LLMClient
 from llmperf.models import RequestConfig
 from llmperf import common_metrics
 
 
 @ray.remote
-class RelaceClient(LLMClient):
+class RelaceClient:
     """Client for Relace API."""
 
     def llm_request(
