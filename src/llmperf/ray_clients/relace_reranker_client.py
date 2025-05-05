@@ -36,13 +36,18 @@ class RelaceRerankerClient:
             raise ValueError("the environment variable RELACE_API_BASE must be set.")
         key = os.environ.get("RELACE_API_KEY")
         if not key:
-            raise ValueError("the environment variable OPENAI_API_KEY must be set.")
-        headers = {"Authorization": f"Bearer {key}"}
+            raise ValueError("the environment variable RELACE_API_KEY must be set.")
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
         if not address:
             raise ValueError("No host provided.")
         if not address.endswith("/"):
             address = address + "/"
         address += "v2/code/rank"
+
+        # Debug print
+        print(f"Request URL: {address}")
+        print(f"Request body: {json.dumps(body)}")
+
         try:
             with requests.post(
                 address,
