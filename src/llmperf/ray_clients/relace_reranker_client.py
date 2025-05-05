@@ -9,15 +9,7 @@ import requests
 from llmperf.models import RankerConfig
 from llmperf import common_metrics
 
-
-def parse_json_list(json_str):
-    """Convert a JSON string representation of a list to a Python list."""
-    try:
-        if isinstance(json_str, str):
-            return json.loads(json_str)
-        return json_str  # Return as is if already parsed
-    except (json.JSONDecodeError, TypeError):
-        raise ValueError(f"Invalid JSON list format: {json_str}")
+import ast
 
 
 @ray.remote
@@ -29,7 +21,7 @@ class RelaceRerankerClient:
     ) -> Tuple[Dict[str, Any], str, RankerConfig]:
         query = ranker_config.query
         codebase_str = ranker_config.codebase
-        codebase = parse_json_list(codebase_str)
+        codebase = ast.literal_eval(codebase_str)
 
         body = {"query": query, "codebase": codebase, "token_limit": 999999999}
         error_response_code = -1
