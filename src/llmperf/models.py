@@ -40,6 +40,6 @@ class RankerConfig(BaseModel):
     """
 
     query: str
-    codebase: Dict[str, str]
+    codebase: Any
     llm_api: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Any = None
