@@ -56,10 +56,6 @@ class RelaceRerankerClient:
             address = address + "/"
         address += "v2/code/rank"
 
-        # Debug print
-        print(f"Request URL: {address}")
-        print(f"Request body: {json.dumps(body)}")
-
         try:
             with requests.post(
                 address,
