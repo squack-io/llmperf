@@ -49,6 +49,7 @@ def get_token_throughput_latencies(
                 request_metrics, gen_text, _ = out
                 all_metrics.append(request_metrics)
             completed_requests.extend(all_metrics)
+        iter += 1
         pbar.update(len(completed_requests) - num_completed_requests)
         num_completed_requests = len(completed_requests)
     pbar.close()
