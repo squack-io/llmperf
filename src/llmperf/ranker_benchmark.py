@@ -34,8 +34,8 @@ def get_token_throughput_latencies(
         time.monotonic() - start_time < test_timeout_s
         and len(completed_requests) < max_num_completed_requests
     ):
-        query = rows[3]["query"]
-        codebase = rows[3]["codebase"]
+        query = rows[4]["query"]
+        codebase = rows[4]["codebase"]
         ranker_config = RankerConfig(
             query=query,
             codebase=codebase,
