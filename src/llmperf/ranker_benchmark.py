@@ -42,14 +42,16 @@ def get_token_throughput_latencies(
             llm_api=llm_api,
         )
         req_launcher.launch_ranker_requests(ranker_config)
-        if not (iter % num_concurrent_requests):
+        iter += 1
+
+        if iter % num_concurrent_requests == 0:
             outs = req_launcher.get_next_ready()
             all_metrics = []
             for out in outs:
                 request_metrics, gen_text, _ = out
                 all_metrics.append(request_metrics)
             completed_requests.extend(all_metrics)
-        iter += 1
+
         pbar.update(len(completed_requests) - num_completed_requests)
         num_completed_requests = len(completed_requests)
     pbar.close()
