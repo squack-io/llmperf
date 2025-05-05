@@ -1,6 +1,6 @@
 from typing import Any, List
 
-from llmperf.models import RequestConfig
+from llmperf.models import RequestConfig, RankerConfig
 from ray.util import ActorPool
 
 
@@ -23,6 +23,21 @@ class RequestsLauncher:
                     _request_config
                 ),
                 request_config,
+            )
+    
+    def launch_ranker_requests(self, ranker_config: RankerConfig) -> None:
+        """Launch requests to the LLM API.
+
+        Args:
+            ranker_config: The configuration for the request.
+
+        """
+        if self._llm_client_pool.has_free():
+            self._llm_client_pool.submit(
+                lambda client, _ranker_config: client.llm_request.remote(
+                    _ranker_config
+                ),
+                ranker_config,
             )
 
     def get_next_ready(self, block: bool = False) -> List[Any]:

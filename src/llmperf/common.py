@@ -3,8 +3,9 @@ from llmperf.ray_clients.openai_chat_completions_client import (
     OpenAIChatCompletionsClient,
 )
 from llmperf.ray_clients.relace_client import RelaceClient
+from llmperf.ray_clients.relace_reranker_client import RelaceRerankerClient
 
-SUPPORTED_APIS = ["openai", "relace"]
+SUPPORTED_APIS = ["openai", "relace", "relace-reranker"]
 
 
 def construct_clients(llm_api: str, num_clients: int):
@@ -22,6 +23,8 @@ def construct_clients(llm_api: str, num_clients: int):
         clients = [OpenAIChatCompletionsClient.remote() for _ in range(num_clients)]
     elif llm_api == "relace":
         clients = [RelaceClient.remote() for _ in range(num_clients)]
+    elif llm_api == "relace-reranker":
+        clients = [RelaceRerankerClient.remote() for _ in range(num_clients)]
     else:
         raise ValueError(
             f"llm_api must be one of the supported LLM APIs: {SUPPORTED_APIS}"
