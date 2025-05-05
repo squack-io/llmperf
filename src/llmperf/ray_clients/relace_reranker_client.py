@@ -47,38 +47,21 @@ class RelaceRerankerClient:
             address = address + "/"
         address += "v2/code/rank"
 
-        print(f"Request URL: {address}")
-        print(
-            f"Request headers: {{'Authorization': 'Bearer <REDACTED>', 'Content-Type': '{headers['Content-Type']}'}}"
-        )
-        print(
-            f"Request body structure: {json.dumps({k: '...' if k == 'codebase' else body[k] for k in body})}"
-        )
-        print(f"Codebase length: {len(json.dumps(codebase))} characters")
-        print(f"Query: {query}")
-
         try:
-            print("Sending request to Relace API...")
             with requests.post(
                 address,
                 json=body,
                 headers=headers,
             ) as response:
-                print(f"Response status code: {response.status_code}")
                 if response.status_code != 200:
                     error_msg = response.text
                     error_response_code = response.status_code
-                    print(f"Error response text: {error_msg}")
                     response.raise_for_status()
 
                 data = response.json()
-                print(f"Response data structure: {list(data.keys())}")
                 if "error" in data:
                     error_msg = data["error"]["message"]
                     error_response_code = data["error"]["code"]
-                    print(
-                        f"Error in response data: {error_msg}, code: {error_response_code}"
-                    )
                     raise RuntimeError(data["error"]["message"])
 
                 generated_text = json.dumps(data)
@@ -88,13 +71,10 @@ class RelaceRerankerClient:
         except Exception as e:
             metrics[common_metrics.ERROR_MSG] = error_msg
             metrics[common_metrics.ERROR_CODE] = error_response_code
-            print(f"Exception type: {type(e).__name__}")
-            print(f"Exception details: {str(e)}")
-            print(f"Error message: {error_msg}")
-            print(f"Error code: {error_response_code}")
+            print(f"Warning Or Error: {e}")
+            print(error_response_code)
 
         # Set metrics for non-streaming request
         metrics[common_metrics.E2E_LAT] = total_request_time
-        print(f"Total request time: {total_request_time} seconds")
 
         return metrics, generated_text, ranker_config
