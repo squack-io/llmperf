@@ -53,12 +53,12 @@ class RelaceClient:
 
         start_time = time.monotonic()
         most_recent_received_token_time = time.monotonic()
-        address = os.environ.get("OPENAI_API_BASE")
+        address = os.environ.get("RELACE_API_BASE")
         if not address:
-            raise ValueError("the environment variable OPENAI_API_BASE must be set.")
-        key = os.environ.get("OPENAI_API_KEY")
+            raise ValueError("the environment variable RELACE_API_BASE must be set.")
+        key = os.environ.get("RELACE_API_KEY")
         if not key:
-            raise ValueError("the environment variable OPENAI_API_KEY must be set.")
+            raise ValueError("the environment variable RELACE_API_KEY must be set.")
         headers = {"Authorization": f"Bearer {key}"}
         if not address:
             raise ValueError("No host provided.")
